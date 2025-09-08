@@ -4,33 +4,41 @@ from dotenv import load_dotenv
 from typing import Optional
 from google.genai import types
 from google.adk.agents import Agent
-from google.cloud import modelarmor_v1
 from google.adk.tools import google_search
 from google.adk.models import LlmResponse, LlmRequest
 from google.adk.agents.callback_context import CallbackContext
+from google.cloud import aiplatform_v1beta1 as aiplatform
+from google.protobuf import struct_pb2
 
 load_dotenv()
 
 project = os.getenv("GOOGLE_CLOUD_PROJECT")
 location = os.getenv("GOOGLE_CLOUD_LOCATION")
-template_model_id = os.getenv("TEMPLATE_MODEL_ARMOR_ID")
+endpoint_id = os.getenv("AIP_ENDPOINT_ID")
 
-client = modelarmor_v1.ModelArmorClient(transport="rest", client_options = {"api_endpoint" : "modelarmor.us.rep.googleapis.com"})
+client = aiplatform.PredictionServiceClient(client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"})
 
 
 def model_armor_analyze(prompt: str):
-    user_prompt_data = modelarmor_v1.DataItem()
-    user_prompt_data.text = prompt
-
-    # noinspection PyTypeChecker
-    request = modelarmor_v1.SanitizeUserPromptRequest(
-        name=f"projects/{project}/locations/us/templates/{template_model_id}",
-        user_prompt_data=user_prompt_data,
+    instance = struct_pb2.Struct()
+    instance.fields["prompt"].string_value = prompt
+    instances = [instance]
+    endpoint = client.endpoint_path(
+        project=project, location=location, endpoint=endpoint_id
     )
-    response = client.sanitize_user_prompt(request=request)
+    response = client.predict(
+        endpoint=endpoint, instances=instances
+    )
     print(response)
-    jailbreak = response.sanitization_result.filter_results.get("pi_and_jailbreak")
-    sensitive_data = response.sanitization_result.filter_results.get("sdp")
+    
+    jailbreak = None
+    sensitive_data = None
+
+    for prediction in response.predictions:
+        if "jailbreak" in prediction:
+            jailbreak = prediction
+        if "sensitive_data" in prediction:
+            sensitive_data = prediction
 
     return jailbreak, sensitive_data
 
@@ -62,31 +70,29 @@ def guardrail_function(callback_context: CallbackContext, llm_request: LlmReques
             )
 
     jailbreak, sensitive_data = model_armor_analyze(last_user_message)
-    if sensitive_data and sensitive_data.sdp_filter_result and sensitive_data.sdp_filter_result.deidentify_result:
-        if sensitive_data.sdp_filter_result.deidentify_result.match_state.name == "MATCH_FOUND":
-            callback_context.state["PII"] = True
-            return LlmResponse(
-                content=types.Content(
-                    role="model",
-                    parts=[types.Part(text=
-                                      f"""
-                                      Your query has identify the following personal information:
-                                      {sensitive_data.sdp_filter_result.deidentify_result.info_types}
-                                      
-                                      Would you like to continue? (Yes/No)
-                                      """
-                                      )],
-                )
+    if sensitive_data and sensitive_data["sensitive_data"]["match"]:
+        callback_context.state["PII"] = True
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text=
+                                  f"""
+                                  Your query has identify the following personal information:
+                                  {sensitive_data["sensitive_data"]["info_types"]}
+                                  
+                                  Would you like to continue? (Yes/No)
+                                  """
+                                  )],
             )
+        )
 
-    if jailbreak and jailbreak.pi_and_jailbreak_filter_result:
-        if jailbreak.pi_and_jailbreak_filter_result.match_state.name == "MATCH_FOUND":
-            return LlmResponse(
-                content=types.Content(
-                    role="model",
-                    parts=[types.Part(text="""Break Reason: Jailbreak""")]
-                )
+    if jailbreak and jailbreak["jailbreak"]["match"]:
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text="""Break Reason: Jailbreak""")]
             )
+        )
     return None
 
 
