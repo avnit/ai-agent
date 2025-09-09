@@ -16,7 +16,7 @@ SERVE_WEB_INTERFACE = True
 # Call the function to get the FastAPI app instance
 # Ensure the agent directory name ('capital_agent') matches your agent folder
 app: FastAPI = get_fast_api_app(
-    agent_dir=AGENT_DIR,
+    agents_dir=AGENT_DIR,
     allow_origins=ALLOWED_ORIGINS,
     web=SERVE_WEB_INTERFACE
 )
