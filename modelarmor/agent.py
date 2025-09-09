@@ -17,10 +17,6 @@ project = os.getenv("GOOGLE_CLOUD_PROJECT")
 location = os.getenv("GOOGLE_CLOUD_LOCATION")
 endpoint_id = os.getenv("AIP_ENDPOINT_ID")
 
-project = "data-vpc-sc-demo"
-location = "us-central1"
-endpoint_id = "glean-poc-template"
-
 client = aiplatform.ModelArmorClient(
     transport="rest",
     client_options=ClientOptions(api_endpoint=f"modelarmor.{location}.rep.googleapis.com")
