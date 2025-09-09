@@ -8,7 +8,7 @@ from google.adk.tools import google_search
 from google.adk.models import LlmResponse, LlmRequest
 from google.adk.agents.callback_context import CallbackContext
 from google.api_core.client_options import ClientOptions
-from google.cloud import modelarmor_v1beta as aiplatform
+from google.cloud import modelarmor_v1 as aiplatform
 from google.protobuf import struct_pb2
 
 load_dotenv()
