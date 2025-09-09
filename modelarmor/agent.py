@@ -94,7 +94,7 @@ def guardrail_function(callback_context: CallbackContext, llm_request: LlmReques
                 callback_context.state["PII"] = False
                 return None
 
-    elif jailbreak and jailbreak.pi_and_jailbreak_filter_result:
+    if jailbreak and jailbreak.pi_and_jailbreak_filter_result:
         if jailbreak.pi_and_jailbreak_filter_result.match_state.name == "MATCH_FOUND":
             return LlmResponse(
                 content=types.Content(
