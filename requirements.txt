@@ -1,3 +1,4 @@
 google-cloud-aiplatform
 uv
 google-cloud-modelarmor
+google-adk
