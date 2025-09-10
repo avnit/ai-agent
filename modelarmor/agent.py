@@ -38,14 +38,14 @@ def model_armor_analyze(prompt: str):
     
     jailbreak = response.sanitization_result.filter_results.get("pi_and_jailbreak")
     sensitive_data = response.sanitization_result.filter_results.get("sdp")
-
+    malicious_content = response.sanitization_result.filter_results.get("malicious_uris")
     # for prediction in response.predictions:
     #     if "jailbreak" in prediction:
     #         jailbreak = prediction
     #     if "sensitive_data" in prediction:
     #         sensitive_data = prediction
 
-    return jailbreak, sensitive_data
+    return jailbreak, sensitive_data, malicious_content
 
 
 def guardrail_function(callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[LlmResponse]:
@@ -71,12 +71,12 @@ def guardrail_function(callback_context: CallbackContext, llm_request: LlmReques
         callback_context.state["PII"] = False
         return None
 
-    jailbreak, sensitive_data = model_armor_analyze(str(last_user_message))
+    jailbreak, sensitive_data,malicious_conntent = model_armor_analyze(str(last_user_message))
     if sensitive_data and sensitive_data.sdp_filter_result and sensitive_data.sdp_filter_result.inspect_result:
         if sensitive_data.sdp_filter_result.inspect_result.match_state.name == "MATCH_FOUND":
             pii_found = True
             callback_context.state["PII"] = True
-            if pii_found and str(last_user_message).lower() != "no":
+            if pii_found and str(last_user_message).lower() != "No":
                 return LlmResponse(
                     content=types.Content(
                         role="model",
@@ -90,9 +90,17 @@ def guardrail_function(callback_context: CallbackContext, llm_request: LlmReques
                                           )],
                     )
                 )
-            elif pii_found and str(last_user_message).lower() == "yes":
+            elif pii_found and str(last_user_message).lower() == "Yes":
                 callback_context.state["PII"] = False
                 return None
+            elif pii_found and str(last_user_message).lower() == "No":
+                callback_context.state["PII"] = False
+                return LlmResponse(
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part(text="Please rephrase your query without personal information.")],
+                    )
+                )
 
     if jailbreak and jailbreak.pi_and_jailbreak_filter_result.match_state.name == "MATCH_FOUND":
         # if jailbreak.pi_and_jailbreak_filter_result.match_state.name == "MATCH_FOUND":
@@ -100,6 +108,13 @@ def guardrail_function(callback_context: CallbackContext, llm_request: LlmReques
             content=types.Content(
                 role="model",
                 parts=[types.Part(text="""Break Reason: Jailbreak""")]
+            )
+        )
+    if malicious_conntent and malicious_conntent.malicious_uris_filter_result.match_state.name == "MATCH_FOUND":
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text="""Break Reason: Malicious Content""")]
             )
         )
     return None
