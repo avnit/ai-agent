@@ -17,9 +17,10 @@ vertexai.init()
 # )
 
 # Build and deploy the agent
-agent = ae.AdkApp(
-    agent=root_agent,
-    enable_tracking=True,
+agent = ae.AgentEngine(
+    # root_agent=root_agent,
+    resource_name=str(endpoint_id),  # Provide the resource_name argument, using endpoint_id from env
+    # enable_tracking=True,
 )
 
 print(f"Agent '{agent.name}' deployed with resource name: '{agent.resource_name}'")
