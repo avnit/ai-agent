@@ -110,7 +110,7 @@ def guardrail_function(callback_context: CallbackContext, llm_request: LlmReques
                 parts=[types.Part(text="""Break Reason: Jailbreak""")]
             )
         )
-    if malicious_conntent and malicious_conntent.malicious_uris_filter_result.match_state.name == "MATCH_FOUND":
+    if malicious_conntent and malicious_conntent.malicious_uri_filter_result.match_state.name == "MATCH_FOUND":
         return LlmResponse(
             content=types.Content(
                 role="model",
