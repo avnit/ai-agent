@@ -33,7 +33,11 @@ def model_armor_analyze(prompt: str):
         user_prompt_data=user_prompt_data    
     )
     
-    response = client.sanitize_user_prompt(request=request)
+    try:
+        response = client.sanitize_user_prompt(request=request)
+    except Exception as e:
+        print(f"Error calling Model Armor: {e}")
+        return None, None, None
     print(response)
     
     jailbreak = response.sanitization_result.filter_results.get("pi_and_jailbreak")
@@ -49,60 +53,73 @@ def model_armor_analyze(prompt: str):
 
 
 def guardrail_function(callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[LlmResponse]:
-    agent_name = callback_context.agent_name
-    print(f"[Callback] Before model call for agent: {agent_name}")
+    print(f"[Callback] Guardrail function invoked for agent: {callback_context.agent_name}")
+    print(f"[Callback] LLM request: {llm_request}")
 
     pii_found = callback_context.state.get("PII", False)
 
-    last_user_message = ""
-    if llm_request.contents and llm_request.contents[-1].role == 'user':
-        if llm_request.contents[-1].parts:
-            last_user_message = llm_request.contents[-1].parts[0].text
+    if not llm_request.contents or llm_request.contents[-1].role != 'user' or not llm_request.contents[-1].parts:
+        print("[Callback] Invalid request format. Skipping guardrail.")
+        return None
+
+    last_user_message_part = llm_request.contents[-1].parts[0]
+    if not hasattr(last_user_message_part, 'text'):
+        print("[Callback] Last user message part is not text. Skipping guardrail.")
+        return None
+    last_user_message = last_user_message_part.text
     print(f"[Callback] Inspecting last user message: '{last_user_message}'")
 
-    if pii_found and str(last_user_message).lower() != "yes":
+    if pii_found:
+        if str(last_user_message).lower().strip() in ["yes", "y"]:
+            print("[Callback] PII confirmed by user. Proceeding with the prompt.")
+            callback_context.state["PII"] = False
+            return None
+        elif str(last_user_message).lower().strip() in ["no", "n"]:
+            print("[Callback] PII denied by user. Blocking the prompt.")
+            callback_context.state["PII"] = False
+            return LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(text="Please rephrase your query without personal information.")],
+                )
+            )
+        else:
+            print("[Callback] PII detected. Asking user for confirmation.")
+            return LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(text=
+                                      f"""
+                                      Your query has identify the following personal information:
+                                      {callback_context.state.get("PII_info_types")}
+                                      
+                                      Would you like to continue? (Yes/No)
+                                      """
+                                      )],
+                )
+            )
+
+    jailbreak, sensitive_data,malicious_conntent = model_armor_analyze(str(last_user_message))
+    print(f"[Callback] Model Armor analysis results: jailbreak={jailbreak}, sensitive_data={sensitive_data}, malicious_content={malicious_conntent}")
+    if sensitive_data and sensitive_data.sdp_filter_result and sensitive_data.sdp_filter_result.inspect_result and sensitive_data.sdp_filter_result.inspect_result.match_state.name == "MATCH_FOUND":
+        callback_context.state["PII"] = True
+        callback_context.state["PII_info_types"] = sensitive_data.sdp_filter_result.deidentify_result.info_types
         return LlmResponse(
             content=types.Content(
                 role="model",
-                parts=[types.Part(text="Please respond Yes/No to continue")]
+                parts=[types.Part(text=
+                                  f"""
+                                  Your query has identify the following personal information:
+                                  {sensitive_data.sdp_filter_result.deidentify_result.info_types}
+                                  
+                                  Would you like to continue? (Yes/No)
+                                  """
+                                  )],
             )
         )
-    elif pii_found and str(last_user_message).lower() == "yes":
-        callback_context.state["PII"] = False
-        return None
-
-    jailbreak, sensitive_data,malicious_conntent = model_armor_analyze(str(last_user_message))
-    if sensitive_data and sensitive_data.sdp_filter_result and sensitive_data.sdp_filter_result.inspect_result:
-        if sensitive_data.sdp_filter_result.inspect_result.match_state.name == "MATCH_FOUND":
-            pii_found = True
-            callback_context.state["PII"] = True
-            if pii_found and str(last_user_message).lower() != "No":
-                return LlmResponse(
-                    content=types.Content(
-                        role="model",
-                        parts=[types.Part(text=
-                                          f"""
-                                          Your query has identify the following personal information:
-                                          {sensitive_data.sdp_filter_result.deidentify_result.info_types}
-                                          
-                                          Would you like to continue? (Yes/No)
-                                          """
-                                          )],
-                    )
-                )
-            elif pii_found and str(last_user_message).lower() == "Yes":
-                callback_context.state["PII"] = False
-                return None
-            elif pii_found and str(last_user_message).lower() == "No":
-                callback_context.state["PII"] = False
-                return LlmResponse(
-                    content=types.Content(
-                        role="model",
-                        parts=[types.Part(text="Please rephrase your query without personal information.")],
-                    )
-                )
 
     if jailbreak and jailbreak.pi_and_jailbreak_filter_result.match_state.name == "MATCH_FOUND":
+        print("[Callback] Jailbreak detected. Blocking the prompt.")
         # if jailbreak.pi_and_jailbreak_filter_result.match_state.name == "MATCH_FOUND":
         return LlmResponse(
             content=types.Content(
@@ -111,12 +128,15 @@ def guardrail_function(callback_context: CallbackContext, llm_request: LlmReques
             )
         )
     if malicious_conntent and malicious_conntent.malicious_uri_filter_result.match_state.name == "MATCH_FOUND":
+        print("[Callback] Malicious content detected. Blocking the prompt.")
         return LlmResponse(
             content=types.Content(
                 role="model",
                 parts=[types.Part(text="""Break Reason: Malicious Content""")]
             )
         )
+    
+    print("[Callback] No issues detected. Proceeding with the prompt.")
     return None
 
 
