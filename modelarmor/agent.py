@@ -103,14 +103,15 @@ def guardrail_function(callback_context: CallbackContext, llm_request: LlmReques
     print(f"[Callback] Model Armor analysis results: jailbreak={jailbreak}, sensitive_data={sensitive_data}, malicious_content={malicious_conntent}")
     if sensitive_data and sensitive_data.sdp_filter_result and sensitive_data.sdp_filter_result.inspect_result and sensitive_data.sdp_filter_result.inspect_result.match_state.name == "MATCH_FOUND":
         callback_context.state["PII"] = True
-        callback_context.state["PII_info_types"] = sensitive_data.sdp_filter_result.deidentify_result.info_types
+        info_types = list(sensitive_data.sdp_filter_result.deidentify_result.info_types)
+        callback_context.state["PII_info_types"] = info_types
         return LlmResponse(
             content=types.Content(
                 role="model",
                 parts=[types.Part(text=
                                   f"""
                                   Your query has identify the following personal information:
-                                  {sensitive_data.sdp_filter_result.deidentify_result.info_types}
+                                  {info_types}
                                   
                                   Would you like to continue? (Yes/No)
                                   """
